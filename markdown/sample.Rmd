@@ -1,0 +1,48 @@
+---
+title: "sample"
+author: "Andrea"
+date: "2/21/2023"
+output: html_document
+---
+
+
+# Load these libraries
+```{r}
+suppressMessages(library(dplyr))
+library(purrr)
+library(tidyr)
+library(utHelpR)
+library(here)
+library(DT)
+set.seed(4561)
+```
+
+
+#Here we are using the **utHelp** package with the **get_data_from_sql_file** function
+review the sql to see that it is pulling the right term, and right data elements needed for the sample
+```{r, echo = FALSE}
+students <- utHelpR::get_data_from_sql_file(file_name="current_students.sql",
+                                               dsn="edify",
+                                               context="project")
+```
+
+#Here we are determining sample sizes based on the groups (primary_level_class_id, college_id, age_band). Sampling 40% of each group (I need 3000 students, and my current students are 4740 - that is 40%).  Because it is 40%, we are excluding groups smaller than 2 (filter) because they will pull zero sample (2*.40 = .8). And selecting sample (samp).
+```{r}
+sample_students_1 <- students %>%
+  group_by(primary_level_class_id, college_id, age_band) %>% 
+  nest() %>%            
+  ungroup() %>% 
+  mutate(population_size = map_int(data, nrow)) %>%
+  filter(population_size >= 2) %>% 
+  mutate(sample_size = as.integer(.4*population_size)) %>% 
+  mutate(samp = map2(data, sample_size, sample_n)) %>% 
+  select(-data) %>%
+  unnest(samp) 
+```
+
+```{r}
+write.table(sample_students_1, here("sensitive/sample_innov.csv"),
+          row.names = FALSE, col.names = TRUE, na = "",
+          quote = FALSE, sep = ",", append = TRUE)
+```
+

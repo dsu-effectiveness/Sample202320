@@ -1,0 +1,261 @@
+---
+title: "project"
+author: "Andrea"
+date: "1/20/2023"
+output: html_document
+---
+
+# Load these libraries
+```{r}
+suppressMessages(library(dplyr))
+library(purrr)
+library(tidyr)
+library(utHelpR)
+library(DT)
+set.seed(4561)
+```
+
+
+#Here we are using the **utHelp** package with the **get_data_from_sql_file** function
+review the sql to see that it is pulling the right term, and right data elements needed for the sample
+```{r, echo = FALSE}
+students <- utHelpR::get_data_from_sql_file(file_name="current_students.sql",
+                                               dsn="edify",
+                                               context="project")
+```
+
+#Here we are using the **utHelp** package with the **get_data_from_sql_file** function
+review the sql to see that it is creating th right groups for sampling
+```{r, echo = FALSE}
+student_counts <- utHelpR::get_data_from_sql_file(file_name="student_counts.sql",
+                                               dsn="edify",
+                                               context="project")
+```
+
+------Trying Matt's code
+```{r}
+nested_students <- students %>%
+  group_by(primary_level_class_id, college_id, age_band) %>% 
+  nest() %>%            
+  ungroup() %>% 
+  mutate(population_size = map_int(data, nrow)) %>%
+  filter(population_size >= 10) %>% 
+  mutate(sample_size = as.integer(.1*population_size)) %>% 
+  mutate(samp = map2(data, sample_size, sample_n))
+```
+
+---altering Matt's code
+```{r}
+nested_students <- students %>%
+  group_by(primary_level_class_id, college_id, age_band) %>%
+  nest() %>%            
+  ungroup() %>% 
+  mutate(n = sum(student_id) ) %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(-data) %>%
+  unnest(samp) 
+```
+
+# need to weed out Cheryl's sample, then mutate to get associate students, then pull Tasha's sample
+
+
+
+#Here we are calculating number of students in the class level because we want each class level to have the same amount of students sampled, so we need this to get percentages for other categories
+```{r}
+student_cls_lvl <- students %>% 
+   group_by(primary_level_class_id) %>% 
+   summarise(count = n_distinct(student_id))
+```
+
+#Here we are joining student counts to student cls lvl so we can calculate percentages
+```{r}
+stu_counts <- student_counts %>% 
+  left_join(student_cls_lvl, by = c("primary_level_class_id" = "primary_level_class_id"))
+```
+
+
+#Here we are calculating the group percentages; we are setting sample size based on class level; we need 3000 students, 3000 divided by the 4 class levels is 750, but GG does not have have enough students so we are sampling 10% of the 3000 student for 30; we are getting the sample group size
+```{r}
+samp_size <- stu_counts %>%
+   mutate(samp_perc = round(stu_count/count, 4)) %>% 
+   mutate(sample_size = if_else(primary_level_class_id == 'GG', '30', '750')) %>%
+   mutate(sample_size = as.numeric(sample_size)) %>% 
+   mutate(sample_group = round(samp_perc * sample_size, 0)) %>% 
+   mutate(group_name = 1:nrow(stu_counts))
+```
+
+#Here we are checking to see that we got 3030 in our sample
+```{r}
+sum(samp_size$sample_group)
+```
+
+#Here we are adding sample information to the student data
+```{r}
+student_samp <- left_join(students, samp_size, by = c("primary_level_class_id" = "primary_level_class_id", "age_band" = "age_band", "college_id" = "college_id"))
+```
+
+
+--------trying something
+
+#create a nested data frame by grouping by group name
+```{r}
+grouped_stu_samp <- student_samp %>% 
+  group_by(group_name)
+
+str(grouped_stu_samp)
+```
+
+#nest the data fram
+```{r}
+nested_stu_samp <- grouped_stu_samp %>% 
+  nest()
+
+View(nested_stu_samp)
+```
+
+
+```{r}
+nested_stu_samp <- student_samp %>% 
+  group_by(group_name) %>%
+  nest() %>%
+  ungroup() %>% 
+  mutate(n = c(2, 5, 3))
+```
+
+
+nested_iris <- iris %>%
+  group_by(Species) %>%
+  nest() %>%
+  ungroup() %>% 
+  mutate(n = c(2, 5, 3))
+  
+sampled_iris <- nested_iris %>%
+  mutate(samp = map2(data, n, sample_n))
+
+sampled_iris %>% 
+  select(-data) %>%
+  unnest(samp)
+
+sampled_iris <- iris %>%
+  group_by(Species) %>% 
+  nest() %>%            
+  ungroup() %>% 
+  mutate(n = c(2, 5, 3)) %>% 
+  mutate(samp = map2(data, n, sample_n)) %>% 
+  select(-data) %>%
+  unnest(samp)
+
+# this is all stuff to build the random data frame
+library(stringr)
+num <- 5000
+college <- c('CHASS', 'CSET', 'COE', 'COA')
+category <- letters[1:10]
+group <- c('alice', 'bob', 'charlie')
+residency <- c('in-state', 'out-of-state')
+pell <- c('eligible', 'not')
+gpa <- c('above', 'below')
+student_id <- sample(1:1000000, num) %>% 
+  str_pad(8, side = 'left', pad = '0')
+
+random_columns <- list(college, category, group, residency, pell, gpa)
+
+df_columns <- purrr::map(random_columns, ~sample(.x, num, replace = TRUE)) 
+names(df_columns) <- c('college', 'category', 'group', 'residency', 'pell', 'gpa')
+
+# this is the data frame to use
+challenge_df <- bind_cols(student_id = student_id, df_columns)
+
+
+Now group this data frame into distinct groups based on college, category, and group. This will be 4*10*3 = 120 groups. Then select a random number of between 10 and 20 of students from each group. The largest this sample will be is 2,400 students.
+
+
+
+
+
+#Here we are creating the sample
+```{r}
+sample <- student_samp
+
+```
+
+
+
+
+#Here we are selecting students based on the sample size needed
+```{r}
+samp_g_1 <- students %>% 
+  filter(group == '1') %>% 
+  filter(primary_level_class_id == 'GG') %>% 
+  filter(age_band == '30_and_above') %>% 
+  filter(college_id == 'BU')
+```
+
+
+
+
+--trying something
+```{r}
+student_samp1 <- students %>% 
+  left_join(samp_size, by = c("primary_level_class_id" = "primary_level_class_id" and "age_band" = "age_band" and "college_id" = "college_id")
+```
+
+```{r}
+student_samp2 <- students %>% 
+  left_join(samp_size, by = c(primary_level_class_id", "age_band", "college_id")
+```
+
+
+
+
+
+--don't need to do this, I did it in the sql
+# Here we create a dataframe to work with. Think dataframe = spreadsheet
+Two rows, one called id_number that goes from 1 to 7488 (to match the number of obs. in the df above), and group that randomly selects 1 or 2
+```{r}
+df1 <- tibble(
+  id_number = 1:7488,
+  group = sample(c(1, 2), 7488, replace = TRUE)
+)
+```
+
+
+# View how many are assigned to group 1 and group 2
+```{r}
+df1_group <- df1 %>% 
+          group_by (group) %>% 
+          summarise (count = n_distinct(id_number))
+view(df1_group)
+```
+
+# Takes the table (students table) and adds the table (df1) to the end, like joining, but there is no join, it just adds it and assumes the data is in the same order, or in this case, order doesn't matter.
+```{r}
+student_groups <- students_spring_2023 %>% 
+  bind_cols (students_spring_2023, df1)
+```
+
+```{r}
+per_student_groups <- student_groups %>% 
+  select(primary_level_class_id...11, id_number) %>% 
+  group_by(primary_level_class_id...11, id_number) %>% 
+  summaraize (count = n_distinct(id_number, rimary_level_class_id...11))
+```
+
+
+
+#Find out the percentage of each class
+```{r}
+per_student_groups <- student_groups %>% 
+  group_by(primary_level_class_id...11) 
+```
+%>% 
+  mutate(percent = student_id...2/sum(student_id...2))
+
+
+# Here we choose a sample of size 3000 from the students in group 2 with the fiters required for the sample pull
+## Thinking I need to do a mutate statement here and create new names in group column, based on the filter
+```{r}
+group_2 <- df_join %>% 
+  filter(group == '2') %>%
+  
+  sample_n(3000)
+```
